@@ -9,8 +9,37 @@ wheels/
 # Virtual environments
 .venv
 .env
+env/
+venv/
+ENV/
 
 # Frontend artifacts
 node_modules/
 frontend/node_modules/
 frontend/dist/
+
+# Test and coverage artifacts
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.pytest_cache/
+.hypothesis/
+
+# Editor and local tooling
+.idea/
+.vscode/
+.cursorignore
+.cursorindexingignore
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Misc local files
+*.log
+pip-log.txt
+db.sqlite3
+db.sqlite3-journal
+.ipynb_checkpoints/

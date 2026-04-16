@@ -1,4 +1,4 @@
-## Agentic Garden
+# Agent-Studio
 
 Simple backend agent for this flow:
 
