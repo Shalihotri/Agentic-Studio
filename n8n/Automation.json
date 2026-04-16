@@ -1,0 +1,238 @@
+{
+  "name": "Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        368,
+        240
+      ],
+      "id": "49e99c1c-502e-444e-a6a1-21f4f5d561c2",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "qw0R1I099j1ZvVio",
+          "name": "OpenAi account 13"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {
+          "webSearch": {
+            "searchContextSize": "medium"
+          }
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        704,
+        448
+      ],
+      "id": "1d2ba895-26f9-438a-907d-9adae2a29b15",
+      "name": "Model Sub Node",
+      "credentials": {
+        "openAiApi": {
+          "id": "qw0R1I099j1ZvVio",
+          "name": "OpenAi account 13"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are an Inventory Operations Planning Assistant.\n\nYou will receive inventory alert data as CSV-formatted input.\nEach row represents a SKU-location combination that has breached an inventory threshold.\n\nYour task is to analyze the data and produce a concise, professional operational summary for business users.\n\nFor the provided data:\n1. Clearly explain WHAT is happening (inventory issue and risk).\n2. Explain WHY it matters (stockout risk, lost sales, service impact).\n3. Recommend WHAT to do next, including a replenishment action.\n4. Specify WHO should be contacted based on escalation hierarchy.\n\nRules:\n- Use only the data provided in the input.\n- Do NOT invent numbers or assumptions.\n- Do NOT mention database tables, SQL, or column names directly.\n- Convert technical fields into business-friendly language.\n- Keep tone professional, calm, and action-oriented.\n\nGuidance for interpretation:\n- Current Inventory Level = ON_HAND\n- Safe Inventory Threshold = EFFECTIVE_THRESHOLD\n- Recommended Replenishment = RECOMMENDED_REPLENISH_QTY\n- Alert Severity determines urgency (LOW / MEDIUM / HIGH)\n- Contact priority:\n    1. Primary Manager\n    2. Secondary Manager\n    3. Regional Manager (for HIGH severity)\n\nOutput Format:\nReturn a structured summary with the following sections:\n\n- Situation Summary\n- Impact Assessment\n- Recommended Action\n- Escalation & Contact",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an enterprise Supply Chain Inventory Planning AI Agent.\n\nYou operate in an automated workflow and do NOT receive free-form user input.\nYour input consists ONLY of structured inventory data fields provided from Snowflake.\n\nAVAILABLE INPUT FIELDS (per execution row):\n- DATE = {{ $json.DATE }}\n- SKU_ID = {{ $json.SKU_ID }}\n- LOCATION_ID = {{ $json.LOCATION_ID }}\n- LOW_STOCK_FLAG = {{ $json.LOW_STOCK_FLAG }}\n- STOCKOUT_FLAG = {{ $json.STOCKOUT_FLAG }}\n- UNITS_SOLD = {{ $json.UNITS_SOLD }}\n- POTENTIAL_DEMAND = {{ $json.POTENTIAL_DEMAND }}\n- UNITS_RECEIVED = {{ $json.UNITS_RECEIVED }}\n- REORDER_POINT = {{ $json.REORDER_POINT }}\n- LEAD_TIME_DAYS = {{ $json.LEAD_TIME_DAYS }}\n- ALERT_SEVERITY = {{ $json.ALERT_SEVERITY }}\n- RECOMMENDED_REPLENISH_QTY = {{ $json.REPLENISHED_QUANTITY }}\n- PRIMARY_MANAGER_EMAIL = {{ $json.PRIMARY_MANAGER_EMAIL }}\n- SECONDARY_MANAGER_EMAIL = {{ $json.SECONDARY_MANAGER_EMAIL }}\n- REGIONAL_MANAGER_EMAIL = {{ $json.REGIONAL_MANAGER_EMAIL }}\n\nSTRICT RULES:\n1. Use ONLY the provided input fields.\n2. Do NOT infer or invent missing values.\n3. Always produce a valid JSON response.\n4. Output must be valid JSON only. No markdown, no commentary.\n5. The \"date\" field must always be returned strictly in YYYY-MM-DD format.\n6. If DATE is provided in a long timestamp format (example: Fri Mar 24 2023 00:00:00 GMT+0000), convert it to YYYY-MM-DD.\n7. \"recommended_action\" must be a short business-readable sentence.\n8. Always include escalation_contact using the provided manager emails.\n\nYOUR TASK:\n- Interpret the inventory risk based on ALERT_SEVERITY.\n- Summarize what is happening using DATE, SKU_ID, and LOCATION_ID.\n- Explain why the situation requires attention using demand and lead time context.\n- Recommend a replenishment action using RECOMMENDED_REPLENISH_QTY.\n- Provide escalation contacts.\n\nALERT INTERPRETATION:\n- ALERT_SEVERITY = HIGH → status = ALERT, alert_type = STOCKOUT\n- ALERT_SEVERITY = MEDIUM → status = WARNING, alert_type = LOW_STOCK\n- ALERT_SEVERITY = LOW → status = WARNING, alert_type = LOW_STOCK\n- If no inventory issue is indicated, use status = HEALTHY and alert_type = NONE\n- If no valid inventory row is available, use status = NO_RESULTS and alert_type = NONE\n\nOUTPUT FORMAT (MANDATORY):\n{\n  \"status\": \"ALERT\",\n  \"alert_type\": \"STOCKOUT\",\n  \"impacted_locations\": [\n    {\n      \"date\": \"2023-03-24\",\n      \"sku_id\": \"SKU123\",\n      \"location_id\": \"LOC001\",\n      \"units_sold\": \"120\",\n      \"potential_demand\": \"150\",\n      \"lead_time_days\": \"5\",\n      \"recommended_replenishment_qty\": 200,\n      \"recommended_action\": \"Replenish 200 units immediately to reduce stockout risk at this location.\"\n    }\n  ],\n  \"escalation_contact\": {\n    \"level_1\": \"primary@example.com\",\n    \"level_2\": \"secondary@example.com\",\n    \"level_3\": \"regional@example.com\"\n  }\n}",
+          "returnIntermediateSteps": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        424,
+        16
+      ],
+      "id": "27600417-1122-4cac-a512-fb0e315aa7cc",
+      "name": "Inventory Planner Agent",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        16
+      ],
+      "id": "850e48e5-66cc-478f-b056-b439ddbd6199",
+      "name": "Start"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    i.DATE,\n    i.SKU_ID,\n    i.LOCATION_ID,\n    i.LOW_STOCK_FLAG,\n    i.STOCKOUT_FLAG,\n    i.UNITS_SOLD,\n    i.POTENTIAL_DEMAND,\n    i.UNITS_RECEIVED,\n    i.REORDER_POINT,\n    i.LEAD_TIME_DAYS,\n    i.REPLENISHED_QUANTITY,\n    l.PRIMARY_MANAGER_EMAIL,\n    l.SECONDARY_MANAGER_EMAIL,\n    l.REGIONAL_MANAGER_EMAIL,\n    CASE\n        WHEN i.STOCKOUT_FLAG = 1 THEN 'HIGH'\n        WHEN i.LOW_STOCK_FLAG = 1 THEN 'MEDIUM'\n        WHEN i.LOST_SALES > l.LOST_SALES_THRESHOLD THEN 'HIGH'\n        ELSE 'LOW'\n    END AS ALERT_SEVERITY,\nFROM SANDBOX.BI.INVENTORY_HISTORY i\nLEFT JOIN SANDBOX.BI.DIM_LOCATION_MASTER l\n    ON i.LOCATION_ID = l.LOCATION_ID\nWHERE\n    (\n        i.ON_HAND < (i.REORDER_POINT * l.SAFETY_STOCK_MULTIPLIER)\n        OR i.LOW_STOCK_FLAG = 1\n        OR i.STOCKOUT_FLAG = 1\n        OR i.LOST_SALES > l.LOST_SALES_THRESHOLD\n    ) AND i.SKU_ID = 'SKU003' AND i.REPLENISHED_QUANTITY > 0;"
+      },
+      "type": "n8n-nodes-base.snowflake",
+      "typeVersion": 1,
+      "position": [
+        144,
+        16
+      ],
+      "id": "6327a7a1-4b41-4855-806a-a18514dd24ae",
+      "name": "Master Data + Forecasted Data",
+      "credentials": {
+        "snowflake": {
+          "id": "f5tiAlIPFcV5ZhRH",
+          "name": "Snowflake InfoServices"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"status\": {\n      \"type\": \"string\",\n      \"enum\": [\"ALERT\", \"WARNING\", \"HEALTHY\", \"NO_RESULTS\"]\n    },\n    \"alert_type\": {\n      \"type\": \"string\",\n      \"enum\": [\"LOW_STOCK\", \"STOCKOUT\", \"NONE\"]\n    },\n    \"impacted_locations\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"date\": {\n            \"type\": \"string\",\n            \"description\": \"Date in YYYY-MM-DD format\"\n          },\n          \"sku_id\": {\n            \"type\": \"string\"\n          },\n          \"location_id\": {\n            \"type\": \"string\"\n          },\n          \"units_sold\": {\n            \"type\": \"string\"\n          },\n          \"potential_demand\": {\n            \"type\": \"string\"\n          },\n          \"lead_time_days\": {\n            \"type\": \"string\"\n          },\n          \"recommended_replenishment_qty\": {\n            \"type\": \"integer\"\n          },\n          \"recommended_action\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"date\",\n          \"sku_id\",\n          \"location_id\",\n          \"units_sold\",\n          \"potential_demand\",\n          \"lead_time_days\",\n          \"recommended_replenishment_qty\",\n          \"recommended_action\"\n        ]\n      }\n    },\n    \"escalation_contact\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"level_1\": {\n          \"type\": \"string\"\n        },\n        \"level_2\": {\n          \"type\": \"string\"\n        },\n        \"level_3\": {\n          \"type\": \"string\"\n        }\n      },\n      \"required\": [\"level_1\", \"level_2\", \"level_3\"]\n    }\n  },\n  \"required\": [\n    \"status\",\n    \"alert_type\",\n    \"impacted_locations\",\n    \"escalation_contact\"\n  ]\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        624,
+        240
+      ],
+      "id": "37822620-9d4f-43e1-a520-40b6dc9cc07f",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "1000"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        496,
+        240
+      ],
+      "id": "46e89d6c-cddc-47dc-b5b8-bd6058c8925b",
+      "name": "Simple Memory"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Inventory Planner Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Sub Node": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Structured Output Parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventory Planner Agent": {
+      "main": [
+        []
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Master Data + Forecasted Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Master Data + Forecasted Data": {
+      "main": [
+        [
+          {
+            "node": "Inventory Planner Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Inventory Planner Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Inventory Planner Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c5c2b727-61a2-475d-a191-510b5fc9d03a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d10741fb954ed80b92f03a5d34cfbe97f3e4967f1c47e674c545db89ff58c1be"
+  },
+  "id": "XcMZlZWL1nG2QJu8",
+  "tags": [
+    {
+      "updatedAt": "2025-05-29T14:29:50.962Z",
+      "createdAt": "2025-05-29T14:29:50.962Z",
+      "id": "pvgbZ5SkC44lguQi",
+      "name": "AI Agent"
+    },
+    {
+      "updatedAt": "2026-01-30T17:24:54.040Z",
+      "createdAt": "2026-01-30T17:24:54.040Z",
+      "id": "FWONJxgewFkH77Ns",
+      "name": "Supply Chain"
+    }
+  ]
+}

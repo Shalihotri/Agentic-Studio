@@ -1,0 +1,1 @@
+"""Agentic Garden application package."""
