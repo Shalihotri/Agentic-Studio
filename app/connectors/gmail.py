@@ -6,8 +6,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from config import Settings
-from models import EmailExecutionResult
+from app.config import Settings
+from app.models import EmailExecutionResult
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 

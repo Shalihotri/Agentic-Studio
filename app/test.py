@@ -1,4 +1,4 @@
-from config import get_settings
+from app.config import get_settings
 s = get_settings()
 print(repr(s.snowflake_user))   # Should not be ''
 print(repr(s.snowflake_account))

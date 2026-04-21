@@ -10,10 +10,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
-from config import Settings
-from connectors.gmail import GmailClient
-from connectors.snowflake import SnowflakeClient
-from models import AgentRunRequest, AgentRunResponse, ChartSpec, EmailExecutionResult
+from app.config import Settings
+from app.connectors.gmail import GmailClient
+from app.connectors.snowflake import SnowflakeClient
+from app.models import AgentRunRequest, AgentRunResponse, ChartSpec, EmailExecutionResult
 
 
 class EmailDraftPlan(BaseModel):
@@ -283,10 +283,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
-from config import Settings
-from connectors.gmail import GmailClient
-from connectors.snowflake import SnowflakeClient
-from models import AgentRunRequest, AgentRunResponse, EmailExecutionResult
+from app.config import Settings
+from app.connectors.gmail import GmailClient
+from app.connectors.snowflake import SnowflakeClient
+from app.models import AgentRunRequest, AgentRunResponse, EmailExecutionResult
 
 
 class EmailDraftPlan(BaseModel):

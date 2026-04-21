@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 import snowflake.connector
-from config import Settings
+from app.config import Settings
 
 class SnowflakeClient:
     def __init__(self, settings: Settings) -> None:
