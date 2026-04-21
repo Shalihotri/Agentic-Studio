@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import companyLogo from "../Full Logo_Dark Grey.png";
+import darkLogo from "../Full Logo_Dark Grey.png";
+import lightLogo from "../Full Logo_White.png";
 
 const providerModels = {
   openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.2", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "o4-mini", "o3", "o1"],
@@ -185,48 +186,104 @@ function FormattedAnalysis({ text }) {
   );
 }
 
-let plotlyReady = null;
-function loadPlotly() {
-  if (plotlyReady) return plotlyReady;
-  plotlyReady = new Promise((resolve, reject) => {
-    if (window.Plotly) return resolve(window.Plotly);
-    const script = document.createElement("script");
-    script.src = "https://cdn.plot.ly/plotly-2.35.2.min.js";
-    script.onload = () => resolve(window.Plotly);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-  return plotlyReady;
+import {
+  LineChart, BarChart, AreaChart, PieChart,
+  Line, Bar, Area, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
+
+const SEVERITY_COLORS = { HIGH: "#e74c3c", MEDIUM: "#e67e22", LOW: "#2ecc71" };
+
+/** Normalise a chart spec into a unified shape understood by RechartsChart */
+function normaliseSpec(spec) {
+  if (!spec) return null;
+
+  // Multi-series spec: { data, x_key, series:[{key,label,color}], chart_type, severity_key? }
+  if (Array.isArray(spec.series) && spec.series.length) return spec;
+
+  // Legacy flat spec: { data, x_key, y_key, chart_type }
+  if (spec.x_key && spec.y_key) {
+    return {
+      ...spec,
+      series: [{ key: spec.y_key, label: spec.y_key, color: PALETTE[0] }],
+    };
+  }
+
+  return spec;
 }
 
-function PlotlyChart({ spec }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!spec?.data?.length || !ref.current) return;
-    const clean = spec.data.map((row) => ({ x: String(row[spec.x_key] ?? ""), y: Number(row[spec.y_key]) })).filter((row) => !Number.isNaN(row.y));
-    if (!clean.length) return;
-    const xs = clean.map((row) => row.x);
-    const ys = clean.map((row) => row.y);
-    const layout = { margin: { t: 10, r: 16, b: 90, l: 56 }, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", showlegend: false, height: 300 };
-    let traces;
-    if (spec.chart_type === "pie") {
-      traces = [{ type: "pie", labels: xs, values: ys, hole: 0.38, marker: { colors: PALETTE } }];
-      layout.margin = { t: 20, r: 20, b: 20, l: 20 };
-      layout.showlegend = true;
-    } else if (spec.chart_type === "line") {
-      traces = [{ type: "scatter", mode: "lines+markers", x: xs, y: ys, line: { color: PALETTE[0], width: 2.5 } }];
-    } else if (spec.chart_type === "area") {
-      traces = [{ type: "scatter", mode: "lines", x: xs, y: ys, fill: "tozeroy", line: { color: PALETTE[0], width: 2 } }];
-    } else {
-      traces = [{ type: "bar", x: xs, y: ys, marker: { color: ys.map((_, i) => PALETTE[i % PALETTE.length]) } }];
-    }
-    loadPlotly().then((Plotly) => Plotly.react(ref.current, traces, layout, { displayModeBar: false, responsive: true }));
-  }, [spec]);
-  return <div ref={ref} style={{ width: "100%", minHeight: 300 }} />;
+const CustomDot = ({ cx, cy, payload, severityKey }) => {
+  if (!severityKey || !payload) return null;
+  const sev = String(payload[severityKey] || "").toUpperCase();
+  const fill = SEVERITY_COLORS[sev] || PALETTE[2];
+  return <circle cx={cx} cy={cy} r={6} fill={fill} stroke="#fff" strokeWidth={1.5} />;
+};
+
+function RechartsChart({ spec }) {
+  const norm = normaliseSpec(spec);
+  if (!norm?.data?.length || !norm.x_key) {
+    return <p style={{ color: "var(--muted)", fontSize: 13 }}>No chart data available.</p>;
+  }
+
+  const { data, x_key, series = [], chart_type = "line", severity_key, title } = norm;
+
+  // Clean data – ensure numeric y values
+  const clean = data.map((row) => {
+    const entry = { ...row, [x_key]: String(row[x_key] ?? "") };
+    series.forEach(({ key }) => { entry[key] = isNaN(Number(row[key])) ? 0 : Number(row[key]); });
+    return entry;
+  });
+
+  const axisStyle = { fontSize: 11, fill: "var(--muted)" };
+  const gridStroke = "rgba(166,186,214,0.12)";
+  const tooltipStyle = {
+    backgroundColor: "var(--panel-2)", border: "1px solid var(--line-strong)",
+    borderRadius: 8, fontSize: 12, color: "var(--text)",
+  };
+
+  if (chart_type === "pie") {
+    const pieData = clean.map((row) => ({ name: row[x_key], value: Number(row[series[0]?.key] ?? 0) }));
+    return (
+      <ResponsiveContainer width="100%" height={300}>
+        <PieChart>
+          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={110} innerRadius={50} paddingAngle={3} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+            {pieData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+          </Pie>
+          <Tooltip contentStyle={tooltipStyle} />
+          <Legend />
+        </PieChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  const ChartComponent = chart_type === "bar" ? BarChart : chart_type === "area" ? AreaChart : LineChart;
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <ChartComponent data={clean} margin={{ top: 8, right: 16, left: 0, bottom: 60 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+        <XAxis dataKey={x_key} tick={{ ...axisStyle, angle: -40, textAnchor: "end", dy: 10 }} interval={0} />
+        <YAxis tick={axisStyle} width={48} />
+        <Tooltip contentStyle={tooltipStyle} />
+        {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12, color: "var(--muted)" }} />}
+        {series.map(({ key, label, color }, idx) => {
+          const stroke = color || PALETTE[idx % PALETTE.length];
+          const commonProps = { key, dataKey: key, name: label || key, stroke, strokeWidth: 2, dot: severity_key ? <CustomDot severityKey={severity_key} /> : { r: 4, fill: stroke }, activeDot: { r: 6 } };
+          if (chart_type === "bar") return <Bar key={key} dataKey={key} name={label || key} fill={stroke} radius={[3, 3, 0, 0]} />;
+          if (chart_type === "area") return <Area key={key} type="monotone" dataKey={key} name={label || key} stroke={stroke} fill={stroke} fillOpacity={0.15} strokeWidth={2} dot={severity_key ? <CustomDot severityKey={severity_key} /> : { r: 4 }} />;
+          return <Line key={key} type="monotone" {...commonProps} />;
+        })}
+      </ChartComponent>
+    </ResponsiveContainer>
+  );
 }
+
+// Keep the old name as an alias so no render-site code needs to change
+const PlotlyChart = RechartsChart;
 
 function App() {
   const canvasRef = useRef(null);
+  const [theme, setTheme] = useState("dark");
   const [form, setForm] = useState(cloneDefaultForm);
   const [catalog, setCatalog] = useState(baseCatalog);
   const [nodes, setNodes] = useState([]);
@@ -247,6 +304,13 @@ function App() {
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) || null, [nodes, selectedNodeId]);
   const selectedDefinition = selectedNode ? catalog[selectedNode.type_id] : null;
   const groupedCatalog = useMemo(() => groupCatalog(catalog), [catalog]);
+  const activeWorkflow = useMemo(
+    () => workflows.find((workflow) => workflow.id === activeWorkflowId) || null,
+    [activeWorkflowId, workflows]
+  );
+  const companyLogo = theme === "dark" ? lightLogo : darkLogo;
+  const workflowLabel = activeWorkflow?.name || "Custom Workflow";
+  const workspaceContextLabel = selectedNode?.name || "Workflow Builder";
   const executableNodes = useMemo(() => {
     const supportedNodes = nodes.filter((node) => catalog[node.type_id]?.supported);
     if (supportedNodes.length <= 1) {
@@ -298,6 +362,10 @@ function App() {
     fitCanvasToNodes();
     setPendingFit(false);
   }, [nodes, pendingFit]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     const element = canvasRef.current;
@@ -609,18 +677,65 @@ function App() {
   }).filter(Boolean), [edges, nodes]);
 
   return (
-    <main className="dag-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <img className="brand-logo" src={companyLogo} alt="Company logo" />
-          <div><p className="eyebrow">Version 1.0</p><h1>Agent Studio</h1></div>
+    <main className="app-shell">
+      <header className="app-topbar">
+        <div className="topbar-primary">
+          <div className="brand-lockup brand-lockup-compact">
+            <img className="brand-logo" src={companyLogo} alt="Company logo" />
+            <div>
+              <p className="eyebrow">{activeWorkflow ? "Agent Studio" : "Agent Studio"}</p>
+              <h1>{workflowLabel}</h1>
+            </div>
+          </div>
+          <nav className="topbar-tabs" aria-label="Workspace sections">
+            <span className="topbar-tab topbar-tab-active">{workspaceContextLabel}</span>
+            <span className="topbar-tab">{form.llm.provider.toUpperCase()}</span>
+            <span className="topbar-tab">{result ? "Last Run Complete" : "Ready"}</span>
+          </nav>
         </div>
-        <p className="topbar-note">Imported n8n workflows are rendered as editable nodes. Supported nodes are prefilled for execution.</p>
+        <div className="topbar-secondary">
+          <button
+            type="button"
+            className="secondary-button theme-toggle"
+            onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+          >
+            {theme === "dark" ? "Light Theme" : "Dark Theme"}
+          </button>
+          <div className="topbar-stat">
+            <span className="topbar-stat-label">Workflow</span>
+            <strong>{workflowLabel}</strong>
+          </div>
+          <div className="topbar-stat">
+            <span className="topbar-stat-label">Model</span>
+            <strong>{form.llm.model}</strong>
+          </div>
+          <div className="topbar-stat">
+            <span className="topbar-stat-label">Selected</span>
+            <strong>{selectedNode?.name || "Canvas"}</strong>
+          </div>
+          <div className="topbar-stat">
+            <span className="topbar-stat-label">Runnable</span>
+            <strong>{executableNodes.length}</strong>
+          </div>
+        </div>
       </header>
 
-      <section className="dag-layout">
+      <section className="workspace-strip">
+        <div className="workspace-crumbs">
+          <span className="workspace-pill">Projects</span>
+          <span className="workspace-separator">/</span>
+          <span className="workspace-pill">{workflowLabel}</span>
+          <span className="workspace-separator">/</span>
+          <span className="workspace-pill workspace-pill-active">{workspaceContextLabel}</span>
+        </div>
+        <p className="workspace-summary">
+          Provider: {form.llm.provider} | Model: {form.llm.model} | Theme: {theme}
+        </p>
+      </section>
+
+      <section className="dag-layout dag-layout-enterprise">
         <aside className="left-rail">
-          <div className="rail-card">
+          <div className="rail-card rail-card-header">
             <p className="eyebrow">Workflow Import</p>
             {workflows.length ? (
               <div className="sidebar-field">
@@ -662,9 +777,13 @@ function App() {
           ))}
         </aside>
 
-        <form className="canvas-panel" onSubmit={handleSubmit}>
+        <form className="canvas-panel canvas-panel-enterprise" onSubmit={handleSubmit}>
           <div className="canvas-header">
-            <div><p className="eyebrow">Workflow Canvas</p><h2>Imported Structure</h2></div>
+            <div>
+              <p className="eyebrow">Workflow Canvas</p>
+              <h2>Visual Builder</h2>
+              <p className="panel-subtitle">Explicit node connections control execution order. Drag to reposition, pan, zoom, or fit the workspace.</p>
+            </div>
             <div className="canvas-actions">
               {connectingFrom ? <span className="zoom-indicator">Connecting...</span> : null}
               <span className="zoom-indicator">{Math.round(canvasScale * 100)}%</span>
@@ -684,6 +803,12 @@ function App() {
               <button type="button" className="secondary-button" onClick={() => { setCanvasOffset({ x: 0, y: 0 }); setCanvasScale(1); }}>Reset View</button>
               <button type="submit" disabled={loading}>{loading ? "Running..." : "Run Workflow"}</button>
             </div>
+          </div>
+
+          <div className="workspace-toolbar">
+            <span className="workspace-chip">Interactive Canvas</span>
+            <span className="workspace-chip workspace-chip-muted">{selectedNode ? `Selected: ${selectedNode.name}` : "No node selected"}</span>
+            <span className="workspace-chip workspace-chip-muted">{selectedEdgeId ? "Arrow selected" : "Arrow-free selection"}</span>
           </div>
 
           <div ref={canvasRef} className="canvas-board" onDrop={handleCanvasDrop} onDragOver={(event) => event.preventDefault()} onPointerDown={handleBoardPointerDown}>
@@ -727,9 +852,13 @@ function App() {
             </div>
           </div>
 
-          <div className="canvas-inspector">
+          <div className="canvas-inspector canvas-inspector-enterprise">
             <div className="inspector-head">
-              <div><p className="eyebrow">Node Configuration</p><h3>{selectedNode ? (selectedNode.name || selectedDefinition?.title) : "Select a Node"}</h3></div>
+              <div>
+                <p className="eyebrow">Node Configuration</p>
+                <h3>{selectedNode ? (selectedNode.name || selectedDefinition?.title) : "Select a Node"}</h3>
+                <p className="panel-subtitle">Inspect imported metadata or adjust runnable node parameters before execution.</p>
+              </div>
               {selectedNode ? <button type="button" className="secondary-button delete-button" onClick={() => {
                 setNodes((current) => current.filter((node) => node.id !== selectedNodeId));
                 setEdges((current) => current.filter((edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId));
@@ -775,9 +904,13 @@ function App() {
         </form>
 
         <aside className="results-panel">
-          <div className="results-card">
+          <div className="results-card results-card-enterprise">
             <div className="results-header">
-              <div><p className="eyebrow">Output</p><h2>Execution Result</h2></div>
+              <div>
+                <p className="eyebrow">Output</p>
+                <h2>Execution Results</h2>
+                <p className="panel-subtitle">Query output, reasoning summaries, charts, and delivery details are rendered here.</p>
+              </div>
               <span className="pill">{result ? `${result.row_count} rows processed` : "Waiting"}</span>
             </div>
             {result ? (
@@ -797,7 +930,31 @@ function App() {
                     </div>
                   </section>
                 ) : null}
-                {result.executed_nodes?.includes("reasoning") && result.charts?.length ? <section><h3>Visual Analysis</h3><div className="charts-grid">{result.charts.map((spec, index) => <div key={index} className="chart-card"><p className="chart-title">{spec.title}</p><PlotlyChart spec={spec} /></div>)}</div></section> : null}
+                {result.executed_nodes?.includes("reasoning") && result.charts?.length ? (
+                  <section>
+                    <div className="analysis-header">
+                      <div>
+                        <h3>Visual Analysis</h3>
+                        <p className="analysis-caption">Charts generated from query results. Multi-series and severity-coded dots are supported.</p>
+                      </div>
+                      {result.charts.some((s) => s.severity_key) && (
+                        <div className="severity-legend">
+                          <span style={{ color: "#e74c3c" }}>● HIGH</span>
+                          <span style={{ color: "#e67e22" }}>● MEDIUM</span>
+                          <span style={{ color: "#2ecc71" }}>● LOW</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="charts-grid">
+                      {result.charts.map((spec, index) => (
+                        <div key={index} className="chart-card">
+                          <p className="chart-title">{spec.title}</p>
+                          <PlotlyChart spec={spec} />
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 {result.executed_nodes?.includes("gmail") && result.email_result ? (
                   <>
                     <section><h3>Email Draft</h3><div className="email-subject-row"><span className="subject-label">Subject</span><span className="subject-text">{result.generated_subject}</span></div><pre>{result.generated_body}</pre></section>
