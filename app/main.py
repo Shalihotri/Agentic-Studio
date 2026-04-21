@@ -28,8 +28,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-frontend_dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 frontend_assets = frontend_dist / "assets"
+
+@app.get("/debug")
+async def debug():
+    return {"frontend_dist": str(frontend_dist), "exists": frontend_dist.exists(), "index_exists": (frontend_dist / "index.html").exists()}
 if frontend_assets.exists():
     app.mount("/assets", StaticFiles(directory=frontend_assets), name="frontend-assets")
 
