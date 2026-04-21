@@ -7,11 +7,10 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from agent import AgentService
-from config import get_settings
-from models import AgentRunRequest, AgentRunResponse, ImportedWorkflowTemplate
-from n8n_importer import load_workflow_templates
-
+from app.agent import AgentService
+from app.config import get_settings
+from app.models import AgentRunRequest, AgentRunResponse, ImportedWorkflowTemplate
+from app.n8n_importer import load_workflow_templates
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
