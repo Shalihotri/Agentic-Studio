@@ -1,15 +1,21 @@
 {
-  "buildCommand": "npm install --prefix frontend && npm run build --prefix frontend && cp -r frontend/dist app/static",
+  "version": 2,
   "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
+    },
     {
       "src": "app/main.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "app/main.py"
-    }
+    { "src": "/health", "dest": "app/main.py" },
+    { "src": "/agent/(.*)", "dest": "app/main.py" },
+    { "src": "/workflows/(.*)", "dest": "app/main.py" },
+    { "src": "/debug", "dest": "app/main.py" },
+    { "src": "/(.*)", "dest": "frontend/$1" }
   ]
 }
