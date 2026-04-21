@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build && cp -r dist ../app/static",
+  "buildCommand": "npm install --prefix frontend && npm run build --prefix frontend && cp -r frontend/dist app/static",
   "builds": [
     {
       "src": "app/main.py",
