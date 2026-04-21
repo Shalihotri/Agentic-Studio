@@ -28,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+frontend_dist = Path(__file__).resolve().parent / "static"
 frontend_assets = frontend_dist / "assets"
 
 @app.get("/debug")
