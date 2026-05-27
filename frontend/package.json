@@ -4,12 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 443 --strictPort",
     "build": "vite build",
     "vercel-build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.16.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "recharts": "^3.8.1"

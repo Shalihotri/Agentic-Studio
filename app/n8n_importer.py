@@ -48,6 +48,42 @@ SUPPORTED_NODE_DEFINITIONS: dict[str, ImportedNodeDefinition] = {
         supported=True,
         origin_type="n8n-nodes-base.gmail",
     ),
+    "outlook": ImportedNodeDefinition(
+        type_id="outlook",
+        title="Send Email",
+        category="Action Setup",
+        subtitle="Outlook Action",
+        color="action",
+        supported=True,
+        origin_type="n8n-nodes-base.microsoftOutlook",
+    ),
+    "chat_model": ImportedNodeDefinition(
+        type_id="chat_model",
+        title="Chat Model",
+        category="LLM Setup",
+        subtitle="Provider Model",
+        color="llm",
+        supported=True,
+        origin_type="@n8n/n8n-nodes-langchain.lmChatOpenAi",
+    ),
+    "memory": ImportedNodeDefinition(
+        type_id="memory",
+        title="Memory",
+        category="LLM Setup",
+        subtitle="Session Memory",
+        color="llm",
+        supported=True,
+        origin_type="@n8n/n8n-nodes-langchain.memoryBufferWindow",
+    ),
+    "output_parser": ImportedNodeDefinition(
+        type_id="output_parser",
+        title="Structured Output Parser",
+        category="LLM Setup",
+        subtitle="JSON Schema Parser",
+        color="llm",
+        supported=True,
+        origin_type="@n8n/n8n-nodes-langchain.outputParserStructured",
+    ),
 }
 
 DEFAULT_FORM_PREFILL = {
@@ -58,6 +94,12 @@ DEFAULT_FORM_PREFILL = {
         "provider": "groq",
         "model": "llama-3.3-70b-versatile",
         "api_key": "",
+    },
+    "memory": {
+        "session_key": "default-session",
+    },
+    "output_parser": {
+        "schema": "",
     },
     "email": {
         "action": "send",
@@ -88,8 +130,16 @@ def _detect_supported_type(n8n_type: str) -> str | None:
     lowered = n8n_type.lower()
     if "snowflake" in lowered:
         return "snowflake"
+    if "outlook" in lowered or "microsoftoutlook" in lowered:
+        return "outlook"
     if "gmail" in lowered:
         return "gmail"
+    if "outputparserstructured" in lowered:
+        return "output_parser"
+    if "memorybufferwindow" in lowered:
+        return "memory"
+    if "lmchat" in lowered:
+        return "chat_model"
     if lowered.endswith(".agent") or "nodes-langchain.agent" in lowered:
         return "reasoning"
     return None
@@ -126,6 +176,23 @@ def _extract_reasoning_goal(parameters: dict[str, Any]) -> str | None:
         system_message = options.get("systemMessage")
         if isinstance(system_message, str) and system_message.strip():
             return system_message.strip()
+    return None
+
+
+def _extract_output_parser_schema(parameters: dict[str, Any]) -> str | None:
+    input_schema = parameters.get("inputSchema")
+    if isinstance(input_schema, str) and input_schema.strip():
+        return input_schema.strip()
+    return None
+
+
+def _extract_memory_session_key(parameters: dict[str, Any]) -> str | None:
+    for key in ("sessionKey", "session_key", "sessionId"):
+        value = parameters.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if value is not None:
+            return str(value)
     return None
 
 
@@ -314,6 +381,30 @@ def _parse_workflow_file(path: Path) -> ImportedWorkflowTemplate:
                 form_prefill["llm"]["provider"] = provider
             if model:
                 form_prefill["llm"]["model"] = model
+            config["llm_provider"] = form_prefill["llm"]["provider"]
+            config["llm_model"] = form_prefill["llm"]["model"]
+
+        if supported_type == "chat_model":
+            provider = _detect_model_provider(n8n_type)
+            model = _extract_model_name(parameters)
+            if provider:
+                form_prefill["llm"]["provider"] = provider
+                config["provider"] = provider
+            if model:
+                form_prefill["llm"]["model"] = model
+                config["model"] = model
+
+        if supported_type == "memory":
+            session_key = _extract_memory_session_key(parameters)
+            if session_key:
+                form_prefill["memory"]["session_key"] = session_key
+                config["session_key"] = session_key
+
+        if supported_type == "output_parser":
+            schema = _extract_output_parser_schema(parameters)
+            if schema:
+                form_prefill["output_parser"]["schema"] = schema
+                config["schema"] = schema
 
         if supported_type == "gmail":
             email_prefill = _extract_email_prefill(parameters)

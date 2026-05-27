@@ -9,7 +9,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app.agent import AgentService
 from app.config import get_settings
-from app.models import AgentRunRequest, AgentRunResponse, ImportedWorkflowTemplate
+from app.models import (
+    AgentChatRequest,
+    AgentChatResponse,
+    AgentRunRequest,
+    AgentRunResponse,
+    ImportedWorkflowTemplate,
+)
 from app.n8n_importer import load_workflow_templates
 
 @asynccontextmanager
@@ -53,6 +59,15 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
     service: AgentService = app.state.agent_service
     try:
         return service.run(request)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/agent/chat", response_model=AgentChatResponse)
+async def chat_with_run(request: AgentChatRequest) -> AgentChatResponse:
+    service: AgentService = app.state.agent_service
+    try:
+        return service.chat(request)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

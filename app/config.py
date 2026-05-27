@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     google_model: str = Field(default="gemini-2.5-flash", alias="GOOGLE_MODEL")
     groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
     groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+    langsmith_api_key: str = Field(default="", alias="LANGSMITH_API_KEY")
+    langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
+    langsmith_project: str = Field(
+        default="agentic-garden", alias="LANGSMITH_PROJECT"
+    )
+    langsmith_endpoint: str | None = Field(default=None, alias="LANGSMITH_ENDPOINT")
 
     snowflake_account: str = Field(default="", alias="SNOWFLAKE_ACCOUNT")
     snowflake_user: str = Field(default="", alias="SNOWFLAKE_USER")
@@ -45,6 +51,14 @@ class Settings(BaseSettings):
     gmail_client_id: str = Field(default="", alias="GMAIL_CLIENT_ID")
     gmail_client_secret: str = Field(default="", alias="GMAIL_CLIENT_SECRET")
     gmail_sender_email: str = Field(default="", alias="GMAIL_SENDER_EMAIL")
+    outlook_oauth_redirect_url: str = Field(
+        default="", alias="OUTLOOK_OAUTH_REDIRECT_URL"
+    )
+    outlook_auth_url: str = Field(default="", alias="OUTLOOK_AUTH_URL")
+    outlook_client_id: str = Field(default="", alias="OUTLOOK_CLIENT_ID")
+    outlook_client_secret: str = Field(default="", alias="OUTLOOK_CLIENT_SECRET")
+    outlook_scope: str = Field(default=".default", alias="OUTLOOK_SCOPE")
+    outlook_sender_email: str = Field(default="", alias="OUTLOOK_SENDER_EMAIL")
 
 
 @lru_cache(maxsize=1)

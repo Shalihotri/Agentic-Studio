@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import darkLogo from "../Full Logo_Dark Grey.png";
 import lightLogo from "../Full Logo_White.png";
 
@@ -10,8 +11,12 @@ const providerModels = {
 
 const baseCatalog = {
   snowflake: { type_id: "snowflake", title: "Snowflake", category: "Tool Setup", subtitle: "Warehouse Query", color: "tool", supported: true },
+  chat_model: { type_id: "chat_model", title: "Chat Model", category: "LLM Setup", subtitle: "Provider Model", color: "llm", supported: true },
+  memory: { type_id: "memory", title: "Memory", category: "LLM Setup", subtitle: "Session Memory", color: "llm", supported: true },
+  output_parser: { type_id: "output_parser", title: "Structured Output Parser", category: "LLM Setup", subtitle: "JSON Schema Parser", color: "llm", supported: true },
   reasoning: { type_id: "reasoning", title: "Reasoning", category: "LLM Setup", subtitle: "Agent Step", color: "llm", supported: true },
   gmail: { type_id: "gmail", title: "Send Email", category: "Action Setup", subtitle: "Gmail Action", color: "action", supported: true },
+  outlook: { type_id: "outlook", title: "Send Email", category: "Action Setup", subtitle: "Outlook Action", color: "action", supported: true },
 };
 
 const defaultForm = {
@@ -19,6 +24,8 @@ const defaultForm = {
   max_rows: 25,
   reasoning_goal: "Identify the key revenue patterns and write an exec-ready summary.",
   llm: { provider: "groq", model: providerModels.groq[0], api_key: "" },
+  memory: { session_key: "default-session" },
+  output_parser: { schema: "" },
   email: {
     action: "send",
     to: "",
@@ -36,6 +43,7 @@ const PALETTE = ["#276257", "#ca7b47", "#6b5ee8", "#2a6d8d", "#e8845e", "#1c3d39
 const NODE_WIDTH = 168;
 const NODE_HEIGHT = 84;
 const FIT_PADDING = 120;
+const AUTH0_ALLOWED_ORIGIN = "https://agentic-studio-five.vercel.app";
 
 function cloneDefaultForm() {
   return JSON.parse(JSON.stringify(defaultForm));
@@ -67,6 +75,15 @@ function parseError(text) {
     return parsed.detail || text;
   } catch {
     return text;
+  }
+}
+
+function formatJsonBlock(value) {
+  if (!value) return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
   }
 }
 
@@ -186,6 +203,157 @@ function FormattedAnalysis({ text }) {
   );
 }
 
+function formatNumber(value) {
+  if (value == null || Number.isNaN(Number(value))) return "N/A";
+  return new Intl.NumberFormat("en-US").format(Number(value));
+}
+
+function formatDuration(value) {
+  if (value == null || Number.isNaN(Number(value))) return "N/A";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(Number(value) / 1000).toFixed(2)} s`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "N/A";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function formatPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) return "Pending";
+  return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
+function formatCurrency(value) {
+  if (value == null || Number.isNaN(Number(value))) return "Pending";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value));
+}
+
+function MonitoringMetricCard({ label, value, hint }) {
+  return (
+    <div className="monitoring-metric-card">
+      <span className="monitoring-metric-label">{label}</span>
+      <strong>{value}</strong>
+      {hint ? <span className="monitoring-metric-hint">{hint}</span> : null}
+    </div>
+  );
+}
+
+function MonitoringView({ result }) {
+  const monitoring = result?.monitoring;
+
+  if (!monitoring) {
+    return <div className="empty-state"><p>Run the workflow to populate monitoring telemetry.</p></div>;
+  }
+
+  const { overview, stages, langsmith } = monitoring;
+
+  return (
+    <div className="monitoring-shell">
+      <section>
+        <div className="analysis-header">
+          <div>
+            <h3>Workflow BI</h3>
+            <p className="analysis-caption">Operational metrics for the full AI workflow: latency, token usage, trace readiness, prompt lineage, and stage-by-stage execution.</p>
+          </div>
+          <span className={`pill ${langsmith.enabled ? "pill-success" : "pill-muted"}`}>{langsmith.status_label}</span>
+        </div>
+        <div className="monitoring-metric-grid">
+          <MonitoringMetricCard label="Total Runtime" value={formatDuration(overview.total_duration_ms)} hint={`${overview.llm_call_count} LLM calls`} />
+          <MonitoringMetricCard label="Total Tokens" value={formatNumber(overview.total_tokens)} hint={`${formatNumber(overview.prompt_tokens)} prompt / ${formatNumber(overview.completion_tokens)} completion`} />
+          <MonitoringMetricCard label="Rows Processed" value={formatNumber(overview.row_count)} hint={`${formatNumber(overview.chart_count)} charts`} />
+          <MonitoringMetricCard label="Tool Stages" value={formatNumber(overview.tool_call_count)} hint={`${formatNumber(overview.trace_count)} trace`} />
+          <MonitoringMetricCard label="Estimated Cost" value={formatCurrency(overview.estimated_cost_usd)} hint="Populate from provider billing or LangSmith cost config" />
+          <MonitoringMetricCard label="Accuracy / Eval" value={formatPercent(overview.accuracy_score)} hint={overview.feedback_status} />
+        </div>
+      </section>
+
+      <section>
+        <div className="analysis-header">
+          <div>
+            <h3>LangSmith Readiness</h3>
+            <p className="analysis-caption">This is the observability contract for tracing and BI over agentic workflows.</p>
+          </div>
+        </div>
+        <div className="monitoring-summary-grid">
+          <div className="monitoring-summary-card">
+            <span className="monitoring-summary-label">Project</span>
+            <strong>{langsmith.project_name || "Not set"}</strong>
+          </div>
+          <div className="monitoring-summary-card">
+            <span className="monitoring-summary-label">API Key</span>
+            <strong>{langsmith.api_key_configured ? "Configured" : "Missing"}</strong>
+          </div>
+          <div className="monitoring-summary-card">
+            <span className="monitoring-summary-label">Tracing</span>
+            <strong>{langsmith.enabled ? "Enabled" : "Disabled"}</strong>
+          </div>
+          <div className="monitoring-summary-card">
+            <span className="monitoring-summary-label">Endpoint</span>
+            <strong>{langsmith.endpoint || "Default LangSmith endpoint"}</strong>
+          </div>
+        </div>
+        <div className="monitoring-list-grid">
+          <div className="monitoring-list-card">
+            <span className="monitoring-summary-label">Dashboard Sections</span>
+            <div className="monitoring-tag-list">
+              {langsmith.dashboard_sections.map((item) => <span key={item} className="workspace-chip workspace-chip-muted">{item}</span>)}
+            </div>
+          </div>
+          <div className="monitoring-list-card">
+            <span className="monitoring-summary-label">Suggested KPIs</span>
+            <div className="monitoring-tag-list">
+              {langsmith.suggested_metrics.map((item) => <span key={item} className="workspace-chip workspace-chip-muted">{item}</span>)}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="analysis-header">
+          <div>
+            <h3>Stage Timeline</h3>
+            <p className="analysis-caption">Each step captures prompt lineage, execution latency, row volume, and token usage where available.</p>
+          </div>
+        </div>
+        <div className="monitoring-stage-list">
+          {stages.map((stage) => (
+            <article key={stage.key} className="monitoring-stage-card">
+              <div className="monitoring-stage-head">
+                <div>
+                  <h4>{stage.label}</h4>
+                  <p>{stage.provider ? `${stage.provider} / ${stage.model || "default model"}` : stage.run_type || "workflow stage"}</p>
+                </div>
+                <span className="pill pill-muted">{formatDuration(stage.duration_ms)}</span>
+              </div>
+              <div className="monitoring-stage-meta">
+                <span>Started: {formatDateTime(stage.started_at)}</span>
+                <span>Completed: {formatDateTime(stage.completed_at)}</span>
+                <span>Rows: {formatNumber(stage.row_count)}</span>
+                <span>Tokens: {formatNumber(stage.usage?.total_tokens)}</span>
+              </div>
+              {stage.prompt_preview ? (
+                <div className="monitoring-stage-block">
+                  <span className="monitoring-summary-label">Prompt Preview</span>
+                  <pre>{stage.prompt_preview}</pre>
+                </div>
+              ) : null}
+              {stage.output_preview ? (
+                <div className="monitoring-stage-block">
+                  <span className="monitoring-summary-label">Output Preview</span>
+                  <pre>{stage.output_preview}</pre>
+                </div>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 import {
   LineChart, BarChart, AreaChart, PieChart,
   Line, Bar, Area, Pie, Cell,
@@ -282,6 +450,14 @@ function RechartsChart({ spec }) {
 const PlotlyChart = RechartsChart;
 
 function App() {
+  const {
+    isLoading: isAuthLoading,
+    isAuthenticated,
+    error: authError,
+    loginWithRedirect,
+    logout,
+    user,
+  } = useAuth0();
   const canvasRef = useRef(null);
   const [theme, setTheme] = useState("dark");
   const [form, setForm] = useState(cloneDefaultForm);
@@ -300,6 +476,10 @@ function App() {
   const [workflows, setWorkflows] = useState([]);
   const [activeWorkflowId, setActiveWorkflowId] = useState("");
   const [importNote, setImportNote] = useState("Loading n8n imports...");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [workspaceSection, setWorkspaceSection] = useState("build");
 
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) || null, [nodes, selectedNodeId]);
   const selectedDefinition = selectedNode ? catalog[selectedNode.type_id] : null;
@@ -310,7 +490,12 @@ function App() {
   );
   const companyLogo = theme === "dark" ? lightLogo : darkLogo;
   const workflowLabel = activeWorkflow?.name || "Custom Workflow";
-  const workspaceContextLabel = selectedNode?.name || "Workflow Builder";
+  const workspaceContextLabel = workspaceSection === "monitoring"
+    ? "Monitoring"
+    : selectedNode?.name || "Build";
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : AUTH0_ALLOWED_ORIGIN;
+  const isAllowedOrigin = currentOrigin === AUTH0_ALLOWED_ORIGIN;
+  const authStatusLabel = isAuthLoading ? "Checking session" : isAuthenticated ? "Authenticated" : "Guest";
   const executableNodes = useMemo(() => {
     const supportedNodes = nodes.filter((node) => catalog[node.type_id]?.supported);
     if (supportedNodes.length <= 1) {
@@ -409,6 +594,8 @@ function App() {
     setCanvasOffset({ x: 0, y: 0 });
     setCanvasScale(1);
     setResult(null);
+    setChatMessages([]);
+    setChatInput("");
     setError("");
     setImportNote(
       all.length
@@ -433,6 +620,8 @@ function App() {
     setCanvasScale(1);
     setPendingFit(true);
     setResult(null);
+    setChatMessages([]);
+    setChatInput("");
     setError("");
     setImportNote(`Imported ${template.nodes.length} nodes from ${template.source_file}. Supported nodes were prefilled.`);
   }
@@ -483,6 +672,14 @@ function App() {
       if (name === "provider") llm.model = getModels(value, current.llm.model)[0];
       return { ...current, llm };
     });
+  }
+
+  function updateMemoryField(name, value) {
+    setForm((current) => ({ ...current, memory: { ...current.memory, [name]: value } }));
+  }
+
+  function updateOutputParserField(name, value) {
+    setForm((current) => ({ ...current, output_parser: { ...current.output_parser, [name]: value } }));
   }
 
   function updateSelectedNode(name, value) {
@@ -636,6 +833,8 @@ function App() {
           max_rows: Number(form.max_rows),
           reasoning_goal: form.reasoning_goal,
           llm: { provider: form.llm.provider, model: form.llm.model, api_key: form.llm.api_key || undefined },
+          memory_session_key: form.memory.session_key || null,
+          output_parser_schema: form.output_parser.schema || null,
           email: {
             action: form.email.action,
             to: parseEmails(form.email.to),
@@ -649,11 +848,57 @@ function App() {
         }),
       });
       if (!response.ok) throw new Error(parseError(await response.text()));
-      setResult(await response.json());
+      const payload = await response.json();
+      setResult(payload);
+      setChatMessages([
+        {
+          role: "assistant",
+          content: payload.analysis
+            ? "Run complete. You can ask follow-up questions about the SQL results, analysis, charts, or structured output."
+            : "Run complete. You can ask follow-up questions about the returned results.",
+        },
+      ]);
+      setChatInput("");
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResultChatSubmit(event) {
+    event.preventDefault();
+    const message = chatInput.trim();
+    if (!message || !result?.run_id) return;
+
+    setChatLoading(true);
+    setError("");
+    setChatMessages((current) => [...current, { role: "user", content: message }]);
+    setChatInput("");
+
+    try {
+      const response = await fetch("/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          run_id: result.run_id,
+          message,
+          memory_session_key: form.memory.session_key || null,
+          llm: {
+            provider: form.llm.provider,
+            model: form.llm.model,
+            api_key: form.llm.api_key || undefined,
+          },
+        }),
+      });
+      if (!response.ok) throw new Error(parseError(await response.text()));
+      const payload = await response.json();
+      setChatMessages((current) => [...current, { role: "assistant", content: payload.answer }]);
+    } catch (err) {
+      setError(err.message);
+      setChatMessages((current) => current.slice(0, -1));
+    } finally {
+      setChatLoading(false);
     }
   }
 
@@ -676,6 +921,112 @@ function App() {
     };
   }).filter(Boolean), [edges, nodes]);
 
+  const signup = () =>
+    loginWithRedirect({ authorizationParams: { screen_hint: "signup" } });
+
+  const login = () => loginWithRedirect();
+
+  const handleLogout = () =>
+    logout({ logoutParams: { returnTo: window.location.origin } });
+
+  if (isAuthLoading) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-loading-card">
+          <img className="auth-brand-logo" src={companyLogo} alt="Blend" />
+          <p className="eyebrow">Blend</p>
+          <h1>Checking your session</h1>
+          <p className="auth-copy">
+            Preparing your workspace and verifying authentication with Auth0.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-hero">
+          <div className="auth-hero-panel auth-hero-brand">
+            <div className="auth-brand-stack">
+              <img className="auth-brand-logo" src={companyLogo} alt="Blend" />
+              <p className="eyebrow">Agentic Studio</p>
+              <h1>Autonomous AI workflows for secure enterprise operations.</h1>
+              <p className="auth-copy">
+                Blend turns data, reasoning, and action into one operating surface for teams that need answers fast.
+              </p>
+            </div>
+            <div className="auth-brand-points">
+              <div className="auth-point">
+                <span className="auth-point-index">01</span>
+                <div>
+                  <strong>Compose agent workflows visually</strong>
+                  <p>Design execution paths across models, data systems, and delivery channels without leaving the canvas.</p>
+                </div>
+              </div>
+              <div className="auth-point">
+                <span className="auth-point-index">02</span>
+                <div>
+                  <strong>Reason on live business data</strong>
+                  <p>Move from SQL results to structured analysis, charts, and follow-up answers in one session.</p>
+                </div>
+              </div>
+              <div className="auth-point">
+                <span className="auth-point-index">03</span>
+                <div>
+                  <strong>Ship outcomes, not just prompts</strong>
+                  <p>Draft emails, automate responses, and route actions directly from the same product surface.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="auth-hero-panel auth-hero-access">
+            <div className="auth-card-header">
+              <p className="eyebrow">Secure Access</p>
+              <h2>Sign in</h2>
+              <p className="auth-copy">
+                Authentication is handled by Auth0 Universal Login. Credentials are entered on the hosted Auth0 page after you continue.
+              </p>
+            </div>
+
+            <div className="auth-action-stack">
+              <button type="button" className="auth-primary-button" onClick={login}>
+                Login
+              </button>
+              <button type="button" className="secondary-button auth-secondary-button" onClick={signup}>
+                Create account
+              </button>
+            </div>
+
+            {/* <div className="auth-detail-list">
+              <div className="auth-detail-item">
+                <span className="auth-detail-label">Tenant</span>
+                <strong>gen-bi.us.auth0.com</strong>
+              </div>
+              <div className="auth-detail-item">
+                <span className="auth-detail-label">App Type</span>
+                <strong>Single Page Application</strong>
+              </div>
+              <div className="auth-detail-item">
+                <span className="auth-detail-label">Configured Origin</span>
+                <strong>{AUTH0_ALLOWED_ORIGIN}</strong>
+              </div>
+            </div> */}
+
+            {authError ? <p className="auth-message auth-message-error">Error: {authError.message}</p> : null}
+            {!isAllowedOrigin ? (
+              <p className="auth-message auth-message-warning">
+                Current origin is {currentOrigin}. Local testing will keep failing until `http://localhost:443` is added to Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins in Auth0.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="app-topbar">
@@ -688,12 +1039,19 @@ function App() {
             </div>
           </div>
           <nav className="topbar-tabs" aria-label="Workspace sections">
-            <span className="topbar-tab topbar-tab-active">{workspaceContextLabel}</span>
-            <span className="topbar-tab">{form.llm.provider.toUpperCase()}</span>
-            <span className="topbar-tab">{result ? "Last Run Complete" : "Ready"}</span>
+            <button type="button" className={`topbar-tab topbar-tab-button ${workspaceSection === "build" ? "topbar-tab-active" : ""}`} onClick={() => setWorkspaceSection("build")}>Build</button>
+            <button type="button" className={`topbar-tab topbar-tab-button ${workspaceSection === "monitoring" ? "topbar-tab-active" : ""}`} onClick={() => setWorkspaceSection("monitoring")}>Monitoring</button>
           </nav>
         </div>
         <div className="topbar-secondary">
+          <div className="topbar-stat auth-panel-compact">
+            <span className="topbar-stat-label">Auth0</span>
+            <strong>{authStatusLabel}</strong>
+            <span className="auth-panel-copy auth-panel-copy-compact">{user?.email || user?.name || "user"}</span>
+            <div className="auth-panel-actions">
+              <button type="button" className="secondary-button auth-logout-button" onClick={handleLogout}>Logout</button>
+            </div>
+          </div>
           <button
             type="button"
             className="secondary-button theme-toggle"
@@ -729,7 +1087,7 @@ function App() {
           <span className="workspace-pill workspace-pill-active">{workspaceContextLabel}</span>
         </div>
         <p className="workspace-summary">
-          Provider: {form.llm.provider} | Model: {form.llm.model} | Theme: {theme}
+          Provider: {form.llm.provider} | Model: {form.llm.model} | Theme: {theme} | Auth: {authStatusLabel}
         </p>
       </section>
 
@@ -877,7 +1235,22 @@ function App() {
 
             {selectedNode?.type_id === "reasoning" ? <div className="field field-wide"><label htmlFor="reasoning_goal">Reasoning Goal</label><textarea id="reasoning_goal" rows="10" value={form.reasoning_goal} onChange={(event) => updateField("reasoning_goal", event.target.value)} /></div> : null}
 
-            {selectedNode?.type_id === "gmail" ? (
+            {selectedNode?.type_id === "chat_model" ? (
+              <div className="inspector-grid">
+                <div className="field"><label htmlFor="chat_provider">Provider</label><select id="chat_provider" value={form.llm.provider} onChange={(event) => updateLlmField("provider", event.target.value)}><option value="openai">OpenAI</option><option value="google">Google</option><option value="groq">Groq</option></select></div>
+                <div className="field"><label htmlFor="chat_model">Model</label><select id="chat_model" value={form.llm.model} onChange={(event) => updateLlmField("model", event.target.value)}>{getModels(form.llm.provider, form.llm.model).map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
+              </div>
+            ) : null}
+
+            {selectedNode?.type_id === "memory" ? (
+              <div className="field field-wide"><label htmlFor="memory_session_key">Session Key</label><input id="memory_session_key" value={form.memory.session_key} onChange={(event) => updateMemoryField("session_key", event.target.value)} /></div>
+            ) : null}
+
+            {selectedNode?.type_id === "output_parser" ? (
+              <div className="field field-wide"><label htmlFor="output_parser_schema">JSON Schema</label><textarea id="output_parser_schema" rows="14" value={form.output_parser.schema} onChange={(event) => updateOutputParserField("schema", event.target.value)} /></div>
+            ) : null}
+
+            {selectedNode && ["gmail", "outlook"].includes(selectedNode.type_id) ? (
               <div className="inspector-grid">
                 <div className="field"><label htmlFor="email_action">Action</label><select id="email_action" value={form.email.action} onChange={(event) => updateEmailField("action", event.target.value)}><option value="send">Send</option><option value="draft">Draft</option><option value="reply">Reply</option></select></div>
                 <div className="field"><label htmlFor="to">To</label><input id="to" value={form.email.to} onChange={(event) => updateEmailField("to", event.target.value)} /></div>
@@ -907,62 +1280,98 @@ function App() {
           <div className="results-card results-card-enterprise">
             <div className="results-header">
               <div>
-                <p className="eyebrow">Output</p>
-                <h2>Execution Results</h2>
-                <p className="panel-subtitle">Query output, reasoning summaries, charts, and delivery details are rendered here.</p>
+                <p className="eyebrow">{workspaceSection === "monitoring" ? "Monitoring" : "Output"}</p>
+                <h2>{workspaceSection === "monitoring" ? "Workflow Monitoring" : "Execution Results"}</h2>
+                <p className="panel-subtitle">
+                  {workspaceSection === "monitoring"
+                    ? "LangSmith-oriented telemetry for prompts, tokens, latency, tool spans, and evaluation readiness."
+                    : "Query output, reasoning summaries, charts, and delivery details are rendered here."}
+                </p>
               </div>
-              <span className="pill">{result ? `${result.row_count} rows processed` : "Waiting"}</span>
+              <span className="pill">{workspaceSection === "monitoring" ? (result?.monitoring ? "Telemetry Ready" : "Waiting") : (result ? `${result.row_count} rows processed` : "Waiting")}</span>
             </div>
-            {result ? (
-              <>
-                {result.executed_nodes?.includes("snowflake") ? <section><h3>SQL Results</h3><ResultsTable rows={result.sample_rows} /></section> : null}
-                {result.executed_nodes?.includes("reasoning") && result.analysis ? (
+            <div className="results-body">
+              {workspaceSection === "monitoring" ? (
+                <MonitoringView result={result} />
+              ) : result ? (
+                <>
+                  {result.executed_nodes?.includes("snowflake") ? <section><h3>SQL Results</h3><ResultsTable rows={result.sample_rows} /></section> : null}
+                  {result.executed_nodes?.includes("reasoning") && result.analysis ? (
+                    <section>
+                      <div className="analysis-header">
+                        <div>
+                          <h3>LLM Analysis</h3>
+                          <p className="analysis-caption">Structured findings generated from the imported workflow context and query output.</p>
+                        </div>
+                        <span className="pill pill-llm">Reasoning Complete</span>
+                      </div>
+                      <div className="analysis-shell">
+                        <FormattedAnalysis text={result.analysis} />
+                      </div>
+                    </section>
+                  ) : null}
+                  {result.structured_output ? (
+                    <section>
+                      <h3>Structured Output</h3>
+                      <pre>{formatJsonBlock(result.structured_output)}</pre>
+                    </section>
+                  ) : null}
+                  {result.executed_nodes?.includes("reasoning") && result.charts?.length ? (
+                    <section>
+                      <div className="analysis-header">
+                        <div>
+                          <h3>Visual Analysis</h3>
+                          <p className="analysis-caption">Charts generated from query results. Multi-series and severity-coded dots are supported.</p>
+                        </div>
+                        {result.charts.some((s) => s.severity_key) && (
+                          <div className="severity-legend">
+                            <span style={{ color: "#e74c3c" }}>● HIGH</span>
+                            <span style={{ color: "#e67e22" }}>● MEDIUM</span>
+                            <span style={{ color: "#2ecc71" }}>● LOW</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="charts-grid">
+                        {result.charts.map((spec, index) => (
+                          <div key={index} className="chart-card">
+                            <p className="chart-title">{spec.title}</p>
+                            <PlotlyChart spec={spec} />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                  {result.executed_nodes?.some((node) => ["gmail", "outlook"].includes(node)) && result.email_result ? (
+                    <>
+                      <section><h3>Email Draft</h3><div className="email-subject-row"><span className="subject-label">Subject</span><span className="subject-text">{result.generated_subject}</span></div><pre>{result.generated_body}</pre></section>
+                      <section><h3>Delivery</h3><div className="delivery-grid">{Object.entries(result.email_result).map(([key, value]) => value != null ? <div key={key} className="delivery-item"><div className="delivery-label">{key.replace(/_/g, " ")}</div><div className="delivery-value">{String(value)}</div></div> : null)}</div></section>
+                    </>
+                  ) : null}
                   <section>
                     <div className="analysis-header">
                       <div>
-                        <h3>LLM Analysis</h3>
-                        <p className="analysis-caption">Structured findings generated from the imported workflow context and query output.</p>
+                        <h3>Chat On Results</h3>
+                        <p className="analysis-caption">Ask follow-up questions about this run using the current model and session memory.</p>
                       </div>
-                      <span className="pill pill-llm">Reasoning Complete</span>
                     </div>
-                    <div className="analysis-shell">
-                      <FormattedAnalysis text={result.analysis} />
+                    <div className="chat-shell">
+                      <div className="chat-thread">
+                        {chatMessages.length ? chatMessages.map((message, index) => (
+                          <div key={`${message.role}-${index}`} className={`chat-bubble chat-bubble-${message.role}`}>
+                            <span className="chat-role">{message.role === "assistant" ? "Assistant" : "You"}</span>
+                            <p>{message.content}</p>
+                          </div>
+                        )) : <p className="chat-empty">Run the workflow, then ask follow-up questions here.</p>}
+                      </div>
+                      <form className="chat-form" onSubmit={handleResultChatSubmit}>
+                        <textarea rows="3" value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Ask about the analysis, rows, charts, or structured output..." />
+                        <button type="submit" disabled={chatLoading || !result?.run_id}>{chatLoading ? "Thinking..." : "Send"}</button>
+                      </form>
                     </div>
                   </section>
-                ) : null}
-                {result.executed_nodes?.includes("reasoning") && result.charts?.length ? (
-                  <section>
-                    <div className="analysis-header">
-                      <div>
-                        <h3>Visual Analysis</h3>
-                        <p className="analysis-caption">Charts generated from query results. Multi-series and severity-coded dots are supported.</p>
-                      </div>
-                      {result.charts.some((s) => s.severity_key) && (
-                        <div className="severity-legend">
-                          <span style={{ color: "#e74c3c" }}>● HIGH</span>
-                          <span style={{ color: "#e67e22" }}>● MEDIUM</span>
-                          <span style={{ color: "#2ecc71" }}>● LOW</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="charts-grid">
-                      {result.charts.map((spec, index) => (
-                        <div key={index} className="chart-card">
-                          <p className="chart-title">{spec.title}</p>
-                          <PlotlyChart spec={spec} />
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
-                {result.executed_nodes?.includes("gmail") && result.email_result ? (
-                  <>
-                    <section><h3>Email Draft</h3><div className="email-subject-row"><span className="subject-label">Subject</span><span className="subject-text">{result.generated_subject}</span></div><pre>{result.generated_body}</pre></section>
-                    <section><h3>Delivery</h3><div className="delivery-grid">{Object.entries(result.email_result).map(([key, value]) => value != null ? <div key={key} className="delivery-item"><div className="delivery-label">{key.replace(/_/g, " ")}</div><div className="delivery-value">{String(value)}</div></div> : null)}</div></section>
-                  </>
-                ) : null}
-              </>
-            ) : <div className="empty-state"><p>Execution output will appear here after the workflow runs.</p></div>}
+                </>
+              ) : <div className="empty-state"><p>Execution output will appear here after the workflow runs.</p></div>}
+            </div>
           </div>
         </aside>
       </section>
