@@ -892,6 +892,13 @@ body::before {
   grid-column: 1 / -1;
 }
 
+.field-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
 .field textarea {
   resize: vertical;
   line-height: 1.55;
@@ -1014,6 +1021,11 @@ button:disabled {
 .pill-success {
   background: color-mix(in srgb, var(--success) 16%, transparent);
   color: color-mix(in srgb, var(--success) 82%, white);
+}
+
+.pill-error {
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+  color: color-mix(in srgb, var(--error) 82%, white);
 }
 
 .results-card section + section {
@@ -1383,6 +1395,7 @@ button:disabled {
 .monitoring-metric-card,
 .monitoring-summary-card,
 .monitoring-list-card,
+.monitoring-eval-card,
 .monitoring-stage-card {
   padding: 14px;
   border-radius: 14px;
@@ -1416,9 +1429,35 @@ button:disabled {
 }
 
 .monitoring-list-grid,
+.monitoring-eval-grid,
 .monitoring-stage-list {
   display: grid;
   gap: 12px;
+}
+
+.monitoring-eval-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.monitoring-eval-card {
+  display: grid;
+  gap: 10px;
+}
+
+.monitoring-eval-card strong {
+  font-size: 1.2rem;
+}
+
+.monitoring-eval-card p {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.monitoring-eval-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .monitoring-tag-list {
@@ -1468,25 +1507,29 @@ button:disabled {
 
 .chat-thread {
   display: grid;
-  gap: 10px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding-right: 4px;
+  gap: 14px;
+  align-items: start;
 }
 
 .chat-bubble {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+  width: fit-content;
+  max-width: min(86%, 760px);
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--line);
+  line-height: 1.55;
 }
 
 .chat-bubble-user {
-  background: rgba(89, 168, 255, 0.1);
+  justify-self: end;
+  background: rgba(89, 168, 255, 0.14);
+  border-color: rgba(89, 168, 255, 0.26);
 }
 
 .chat-bubble-assistant {
+  justify-self: start;
   background: color-mix(in srgb, var(--panel-2) 84%, transparent);
 }
 
@@ -1501,8 +1544,23 @@ button:disabled {
 .chat-bubble p,
 .chat-empty {
   margin: 0;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.chat-content {
+  display: grid;
+  gap: 8px;
+  font-size: 0.93rem;
+}
+
+.chat-content ul,
+.chat-content ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.chat-content li + li {
+  margin-top: 5px;
 }
 
 .chat-form {
@@ -1611,7 +1669,8 @@ button:disabled {
   }
 
   .monitoring-metric-grid,
-  .monitoring-summary-grid {
+  .monitoring-summary-grid,
+  .monitoring-eval-grid {
     grid-template-columns: 1fr;
   }
 

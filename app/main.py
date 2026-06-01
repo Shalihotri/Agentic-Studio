@@ -15,6 +15,8 @@ from app.models import (
     AgentRunRequest,
     AgentRunResponse,
     ImportedWorkflowTemplate,
+    SnowflakeMetadataResponse,
+    SnowflakeSelection,
 )
 from app.n8n_importer import load_workflow_templates
 
@@ -52,6 +54,27 @@ async def healthcheck() -> dict[str, str]:
 @app.get("/workflows/imported", response_model=list[ImportedWorkflowTemplate])
 async def imported_workflows() -> list[ImportedWorkflowTemplate]:
     return load_workflow_templates()
+
+
+@app.get("/snowflake/metadata", response_model=SnowflakeMetadataResponse)
+async def snowflake_metadata(
+    role: str | None = None,
+    warehouse: str | None = None,
+    database: str | None = None,
+    schema: str | None = None,
+) -> SnowflakeMetadataResponse:
+    service: AgentService = app.state.agent_service
+    try:
+        return service.get_snowflake_metadata(
+            SnowflakeSelection(
+                role=role,
+                warehouse=warehouse,
+                database=database,
+                schema=schema,
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/agent/run", response_model=AgentRunResponse)

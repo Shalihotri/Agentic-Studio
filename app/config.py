@@ -29,15 +29,25 @@ class Settings(BaseSettings):
     langsmith_endpoint: str | None = Field(default=None, alias="LANGSMITH_ENDPOINT")
 
     snowflake_account: str = Field(default="", alias="SNOWFLAKE_ACCOUNT")
-    snowflake_user: str = Field(default="", alias="SNOWFLAKE_USER")
+    snowflake_user: str = Field(
+        default="GEN_BI_SERVICE_ACCOUNT", alias="SNOWFLAKE_USER"
+    )
     snowflake_password: str = Field(default="", alias="SNOWFLAKE_PASSWORD")
     snowflake_warehouse: str = Field(default="", alias="SNOWFLAKE_WAREHOUSE")
     snowflake_database: str = Field(default="", alias="SNOWFLAKE_DATABASE")
     snowflake_schema: str = Field(default="", alias="SNOWFLAKE_SCHEMA")
     snowflake_role: str | None = Field(default=None, alias="SNOWFLAKE_ROLE")
     snowflake_authenticator: str = Field(
-        default="snowflake",
+        default="snowflake_jwt",
         alias="SNOWFLAKE_AUTHENTICATOR",
+    )
+    snowflake_private_key_file: Path = Field(
+        default=Path(__file__).parent / "rsa_key.p8",
+        alias="SNOWFLAKE_PRIVATE_KEY_FILE",
+    )
+    snowflake_private_key_file_pwd: str | None = Field(
+        default=None,
+        alias="SNOWFLAKE_PRIVATE_KEY_FILE_PWD",
     )
 
     gmail_credentials_file: Path = Field(

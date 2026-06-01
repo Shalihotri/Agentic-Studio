@@ -1,6 +1,7 @@
 from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
+from pydantic import ConfigDict
 
 
 class LlmConfig(BaseModel):
@@ -30,6 +31,24 @@ class ChartSpec(BaseModel):
     data: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class SnowflakeSelection(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    role: str | None = None
+    warehouse: str | None = None
+    database: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str | None = None
+
+
+class SnowflakeMetadataResponse(BaseModel):
+    roles: list[str] = Field(default_factory=list)
+    warehouses: list[str] = Field(default_factory=list)
+    databases: list[str] = Field(default_factory=list)
+    schemas: list[str] = Field(default_factory=list)
+    tables: list[str] = Field(default_factory=list)
+
+
 class AgentRunRequest(BaseModel):
     workflow_nodes: list[str] = Field(default_factory=list)
     sql_query: str = Field(..., description="The SQL query to execute in Snowflake.")
@@ -46,6 +65,7 @@ class AgentRunRequest(BaseModel):
     email: EmailInput = Field(default_factory=EmailInput)
     memory_session_key: str | None = None
     output_parser_schema: str | None = None
+    snowflake: SnowflakeSelection | None = None
 
 
 class EmailExecutionResult(BaseModel):

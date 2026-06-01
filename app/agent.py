@@ -565,7 +565,11 @@ Rules:
                 if node == "snowflake":
                     started_at = self._now_iso()
                     start_perf = perf_counter()
-                    rows = self._snowflake.run_query(request.sql_query, request.max_rows)
+                    rows = self._snowflake.run_query(
+                        request.sql_query,
+                        request.max_rows,
+                        request.snowflake,
+                    )
                     monitoring_stages.append(
                         self._build_stage(
                             key="snowflake",
@@ -727,3 +731,6 @@ Charts:
         history.append(AIMessage(content=answer))
 
         return AgentChatResponse(run_id=request.run_id, answer=answer)
+
+    def get_snowflake_metadata(self, selection):
+        return self._snowflake.get_metadata(selection)

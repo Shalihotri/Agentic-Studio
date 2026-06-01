@@ -9,6 +9,7 @@ export default defineConfig({
       '/agent': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
       '/workflows': 'http://localhost:8000',
+      '/snowflake': 'http://localhost:8000',
     }
   }
 })

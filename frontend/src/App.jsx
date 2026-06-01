@@ -22,6 +22,7 @@ const baseCatalog = {
 const defaultForm = {
   sql_query: "Provide your SQL Query.",
   max_rows: 25,
+  snowflake: { role: "", warehouse: "", database: "", schema: "", table: "" },
   reasoning_goal: "Identify the key revenue patterns and write an exec-ready summary.",
   llm: { provider: "groq", model: providerModels.groq[0], api_key: "" },
   memory: { session_key: "default-session" },
@@ -54,6 +55,7 @@ function mergeForm(prefill) {
   if (!prefill) return next;
   next.sql_query = prefill.sql_query ?? next.sql_query;
   next.max_rows = prefill.max_rows ?? next.max_rows;
+  next.snowflake = { ...next.snowflake, ...(prefill.snowflake || {}) };
   next.reasoning_goal = prefill.reasoning_goal ?? next.reasoning_goal;
   next.llm = { ...next.llm, ...(prefill.llm || {}) };
   next.email = { ...next.email, ...(prefill.email || {}) };
@@ -76,6 +78,19 @@ function parseError(text) {
   } catch {
     return text;
   }
+}
+
+function buildQuery(params) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) search.set(key, value);
+  });
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
+
+function quoteSqlIdentifier(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 function formatJsonBlock(value) {
@@ -203,6 +218,77 @@ function FormattedAnalysis({ text }) {
   );
 }
 
+function cleanChatInline(value) {
+  return String(value || "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_{2}([^_]+)_{2}/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+--\s+/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function FormattedChatMessage({ text }) {
+  const lines = String(text || "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .split("\n");
+  const blocks = [];
+  let list = null;
+
+  const flushList = () => {
+    if (list?.items.length) blocks.push(list);
+    list = null;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line || /^-{2,}$/.test(line)) {
+      flushList();
+      return;
+    }
+
+    const numbered = line.match(/^(\d+)[.)]\s+(.+)/);
+    if (numbered) {
+      if (list?.type !== "ol") flushList();
+      list = list || { type: "ol", items: [] };
+      list.items.push(cleanChatInline(numbered[2]));
+      return;
+    }
+
+    const bulleted = line.match(/^[-*•]\s+(.+)/);
+    if (bulleted) {
+      if (list?.type !== "ul") flushList();
+      list = list || { type: "ul", items: [] };
+      list.items.push(cleanChatInline(bulleted[1]));
+      return;
+    }
+
+    flushList();
+    blocks.push({ type: "p", text: cleanChatInline(line.replace(/^[-*#]+\s*/, "")) });
+  });
+
+  flushList();
+
+  if (!blocks.length) return null;
+
+  return (
+    <div className="chat-content">
+      {blocks.map((block, index) => {
+        if (block.type === "ul") {
+          return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>;
+        }
+        if (block.type === "ol") {
+          return <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ol>;
+        }
+        return <p key={index}>{block.text}</p>;
+      })}
+    </div>
+  );
+}
+
 function formatNumber(value) {
   if (value == null || Number.isNaN(Number(value))) return "N/A";
   return new Intl.NumberFormat("en-US").format(Number(value));
@@ -241,6 +327,91 @@ function MonitoringMetricCard({ label, value, hint }) {
   );
 }
 
+function getClearsEvaluation(monitoring) {
+  const { overview, stages = [] } = monitoring;
+  const completedStages = stages.filter((stage) => stage.status === "completed").length;
+  const failedStages = stages.filter((stage) => stage.status === "error").length;
+  const latestLlmOutput = [...stages].reverse().find((stage) => stage.run_type === "llm" && stage.output_preview)?.output_preview;
+  const hasOutput = Boolean(latestLlmOutput);
+  const hasRows = Number(overview.row_count) > 0;
+  const hasStructuredOutput = Boolean(overview.structured_output_available);
+  const runtime = Number(overview.total_duration_ms) || 0;
+
+  return [
+    {
+      key: "correctness",
+      label: "Correctness",
+      status: hasStructuredOutput || hasRows ? "Review" : "Needs Data",
+      score: hasStructuredOutput || hasRows ? 0.7 : 0.35,
+      rationale: hasStructuredOutput
+        ? "Structured output is available for factual review against expected fields."
+        : hasRows
+          ? "Rows were returned, but no ground truth is attached for automated correctness scoring."
+          : "No returned rows or structured output were available to validate factual accuracy.",
+    },
+    {
+      key: "latency",
+      label: "Latency",
+      status: runtime <= 10000 ? "Pass" : runtime <= 30000 ? "Review" : "Slow",
+      score: runtime <= 10000 ? 1 : runtime <= 30000 ? 0.7 : 0.4,
+      rationale: `The workflow completed in ${formatDuration(runtime)}.`,
+    },
+    {
+      key: "execution",
+      label: "Execution",
+      status: failedStages ? "Fail" : completedStages ? "Pass" : "Needs Data",
+      score: failedStages ? 0.2 : completedStages ? 1 : 0.35,
+      rationale: failedStages
+        ? `${failedStages} stage${failedStages === 1 ? "" : "s"} reported an error.`
+        : `${completedStages} stage${completedStages === 1 ? "" : "s"} completed without recorded errors.`,
+    },
+    {
+      key: "adherence",
+      label: "Adherence",
+      status: hasStructuredOutput ? "Pass" : hasOutput ? "Review" : "Needs Data",
+      score: hasStructuredOutput ? 0.9 : hasOutput ? 0.65 : 0.35,
+      rationale: hasStructuredOutput
+        ? "The LLM response produced structured output that can be checked against the expected contract."
+        : hasOutput
+          ? "The LLM returned text output, but no structured contract was available for strict format checks."
+          : "No LLM output was available for instruction or format adherence checks.",
+    },
+    {
+      key: "relevance",
+      label: "Relevance",
+      status: hasOutput || hasRows ? "Review" : "Needs Data",
+      score: hasOutput || hasRows ? 0.7 : 0.35,
+      rationale: hasOutput
+        ? "The final LLM output is present and can be compared with the user's request."
+        : hasRows
+          ? "Query results are available, but no LLM response preview was captured for relevance scoring."
+          : "No output was available to compare against the request.",
+    },
+    {
+      key: "safety",
+      label: "Safety",
+      status: hasOutput ? "Review" : "Needs Data",
+      score: hasOutput ? 0.65 : 0.35,
+      rationale: hasOutput
+        ? "Safety needs an LLM judge or policy scorer; no safety violation was recorded in telemetry."
+        : "No LLM output was available for safety review.",
+    },
+  ];
+}
+
+function MonitoringEvaluationCard({ item }) {
+  return (
+    <article className="monitoring-eval-card">
+      <div className="monitoring-eval-head">
+        <span className="monitoring-summary-label">{item.label}</span>
+        <span className={`pill ${item.status === "Pass" ? "pill-success" : item.status === "Fail" || item.status === "Slow" ? "pill-error" : "pill-muted"}`}>{item.status}</span>
+      </div>
+      <strong>{formatPercent(item.score)}</strong>
+      <p>{item.rationale}</p>
+    </article>
+  );
+}
+
 function MonitoringView({ result }) {
   const monitoring = result?.monitoring;
 
@@ -248,7 +419,8 @@ function MonitoringView({ result }) {
     return <div className="empty-state"><p>Run the workflow to populate monitoring telemetry.</p></div>;
   }
 
-  const { overview, stages, langsmith } = monitoring;
+  const { overview, stages } = monitoring;
+  const clearsEvaluation = getClearsEvaluation(monitoring);
 
   return (
     <div className="monitoring-shell">
@@ -256,58 +428,41 @@ function MonitoringView({ result }) {
         <div className="analysis-header">
           <div>
             <h3>Workflow BI</h3>
-            <p className="analysis-caption">Operational metrics for the full AI workflow: latency, token usage, trace readiness, prompt lineage, and stage-by-stage execution.</p>
+            <p className="analysis-caption">Operational metrics for the full AI workflow: latency, token usage, prompt lineage, and stage-by-stage execution.</p>
           </div>
-          <span className={`pill ${langsmith.enabled ? "pill-success" : "pill-muted"}`}>{langsmith.status_label}</span>
         </div>
         <div className="monitoring-metric-grid">
           <MonitoringMetricCard label="Total Runtime" value={formatDuration(overview.total_duration_ms)} hint={`${overview.llm_call_count} LLM calls`} />
           <MonitoringMetricCard label="Total Tokens" value={formatNumber(overview.total_tokens)} hint={`${formatNumber(overview.prompt_tokens)} prompt / ${formatNumber(overview.completion_tokens)} completion`} />
           <MonitoringMetricCard label="Rows Processed" value={formatNumber(overview.row_count)} hint={`${formatNumber(overview.chart_count)} charts`} />
-          <MonitoringMetricCard label="Tool Stages" value={formatNumber(overview.tool_call_count)} hint={`${formatNumber(overview.trace_count)} trace`} />
-          <MonitoringMetricCard label="Estimated Cost" value={formatCurrency(overview.estimated_cost_usd)} hint="Populate from provider billing or LangSmith cost config" />
-          <MonitoringMetricCard label="Accuracy / Eval" value={formatPercent(overview.accuracy_score)} hint={overview.feedback_status} />
+          <MonitoringMetricCard label="Tool Stages" value={formatNumber(overview.tool_call_count)} hint={`${formatNumber(stages.length)} recorded stages`} />
         </div>
       </section>
 
       <section>
         <div className="analysis-header">
           <div>
-            <h3>LangSmith Readiness</h3>
-            <p className="analysis-caption">This is the observability contract for tracing and BI over agentic workflows.</p>
+            <h3>Cost</h3>
+            <p className="analysis-caption">Usage and cost view for the current run.</p>
           </div>
         </div>
-        <div className="monitoring-summary-grid">
-          <div className="monitoring-summary-card">
-            <span className="monitoring-summary-label">Project</span>
-            <strong>{langsmith.project_name || "Not set"}</strong>
-          </div>
-          <div className="monitoring-summary-card">
-            <span className="monitoring-summary-label">API Key</span>
-            <strong>{langsmith.api_key_configured ? "Configured" : "Missing"}</strong>
-          </div>
-          <div className="monitoring-summary-card">
-            <span className="monitoring-summary-label">Tracing</span>
-            <strong>{langsmith.enabled ? "Enabled" : "Disabled"}</strong>
-          </div>
-          <div className="monitoring-summary-card">
-            <span className="monitoring-summary-label">Endpoint</span>
-            <strong>{langsmith.endpoint || "Default LangSmith endpoint"}</strong>
+        <div className="monitoring-metric-grid">
+          <MonitoringMetricCard label="Estimated Cost" value={formatCurrency(overview.estimated_cost_usd)} hint="Pending until model pricing is configured" />
+          <MonitoringMetricCard label="Prompt Tokens" value={formatNumber(overview.prompt_tokens)} hint="Input usage" />
+          <MonitoringMetricCard label="Completion Tokens" value={formatNumber(overview.completion_tokens)} hint="Output usage" />
+          <MonitoringMetricCard label="Total Tokens" value={formatNumber(overview.total_tokens)} hint={`${overview.provider} / ${overview.model}`} />
+        </div>
+      </section>
+
+      <section>
+        <div className="analysis-header">
+          <div>
+            <h3>CLEARS Evaluation</h3>
+            <p className="analysis-caption">LLM output is grouped using MLflow's CLEARS dimensions: correctness, latency, execution, adherence, relevance, and safety.</p>
           </div>
         </div>
-        <div className="monitoring-list-grid">
-          <div className="monitoring-list-card">
-            <span className="monitoring-summary-label">Dashboard Sections</span>
-            <div className="monitoring-tag-list">
-              {langsmith.dashboard_sections.map((item) => <span key={item} className="workspace-chip workspace-chip-muted">{item}</span>)}
-            </div>
-          </div>
-          <div className="monitoring-list-card">
-            <span className="monitoring-summary-label">Suggested KPIs</span>
-            <div className="monitoring-tag-list">
-              {langsmith.suggested_metrics.map((item) => <span key={item} className="workspace-chip workspace-chip-muted">{item}</span>)}
-            </div>
-          </div>
+        <div className="monitoring-eval-grid">
+          {clearsEvaluation.map((item) => <MonitoringEvaluationCard key={item.key} item={item} />)}
         </div>
       </section>
 
@@ -480,6 +635,8 @@ function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [workspaceSection, setWorkspaceSection] = useState("build");
+  const [snowflakeMetadata, setSnowflakeMetadata] = useState({ roles: [], warehouses: [], databases: [], schemas: [], tables: [] });
+  const [snowflakeStatus, setSnowflakeStatus] = useState("Loading Snowflake metadata...");
 
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) || null, [nodes, selectedNodeId]);
   const selectedDefinition = selectedNode ? catalog[selectedNode.type_id] : null;
@@ -581,6 +738,31 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const { role, warehouse, database, schema } = form.snowflake;
+    setSnowflakeStatus("Loading Snowflake metadata...");
+    fetch(`/snowflake/metadata${buildQuery({ role, warehouse, database, schema })}`)
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load Snowflake metadata.")))
+      .then((metadata) => {
+        if (cancelled) return;
+        setSnowflakeMetadata({
+          roles: metadata.roles || [],
+          warehouses: metadata.warehouses || [],
+          databases: metadata.databases || [],
+          schemas: metadata.schemas || [],
+          tables: metadata.tables || [],
+        });
+        setSnowflakeStatus("Metadata loaded");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSnowflakeMetadata({ roles: [], warehouses: [], databases: [], schemas: [], tables: [] });
+        setSnowflakeStatus(err.message);
+      });
+    return () => { cancelled = true; };
+  }, [form.snowflake.role, form.snowflake.warehouse, form.snowflake.database, form.snowflake.schema]);
+
   function resetToBlankWorkflow(all = workflows) {
     setCatalog(baseCatalog);
     setNodes([]);
@@ -660,6 +842,31 @@ function App() {
 
   function updateField(name, value) {
     setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  function updateSnowflakeField(name, value) {
+    setForm((current) => {
+      const snowflake = { ...current.snowflake, [name]: value };
+      if (name === "role") {
+        snowflake.warehouse = "";
+        snowflake.database = "";
+        snowflake.schema = "";
+        snowflake.table = "";
+      }
+      if (name === "database") {
+        snowflake.schema = "";
+        snowflake.table = "";
+      }
+      if (name === "schema") {
+        snowflake.table = "";
+      }
+      const next = { ...current, snowflake };
+      if (name === "table" && value && current.sql_query === "Provide your SQL Query.") {
+        const tableName = [snowflake.database, snowflake.schema, value].filter(Boolean).map(quoteSqlIdentifier).join(".");
+        next.sql_query = tableName ? `SELECT * FROM ${tableName} LIMIT ${current.max_rows}` : current.sql_query;
+      }
+      return next;
+    });
   }
 
   function updateEmailField(name, value) {
@@ -831,6 +1038,13 @@ function App() {
           workflow_nodes: executableNodes,
           sql_query: form.sql_query,
           max_rows: Number(form.max_rows),
+          snowflake: {
+            role: form.snowflake.role || null,
+            warehouse: form.snowflake.warehouse || null,
+            database: form.snowflake.database || null,
+            schema: form.snowflake.schema || null,
+            table: form.snowflake.table || null,
+          },
           reasoning_goal: form.reasoning_goal,
           llm: { provider: form.llm.provider, model: form.llm.model, api_key: form.llm.api_key || undefined },
           memory_session_key: form.memory.session_key || null,
@@ -1228,6 +1442,12 @@ function App() {
 
             {selectedNode?.type_id === "snowflake" ? (
               <div className="inspector-grid">
+                <div className="field"><label htmlFor="snowflake_role">Role</label><select id="snowflake_role" value={form.snowflake.role} onChange={(event) => updateSnowflakeField("role", event.target.value)}><option value="">Default role</option>{snowflakeMetadata.roles.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+                <div className="field"><label htmlFor="snowflake_warehouse">Warehouse</label><select id="snowflake_warehouse" value={form.snowflake.warehouse} onChange={(event) => updateSnowflakeField("warehouse", event.target.value)}><option value="">Default warehouse</option>{snowflakeMetadata.warehouses.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+                <div className="field"><label htmlFor="snowflake_database">Database</label><select id="snowflake_database" value={form.snowflake.database} onChange={(event) => updateSnowflakeField("database", event.target.value)}><option value="">Select database</option>{snowflakeMetadata.databases.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+                <div className="field"><label htmlFor="snowflake_schema">Schema</label><select id="snowflake_schema" value={form.snowflake.schema} onChange={(event) => updateSnowflakeField("schema", event.target.value)} disabled={!form.snowflake.database}><option value="">Select schema</option>{snowflakeMetadata.schemas.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+                <div className="field"><label htmlFor="snowflake_table">Table</label><select id="snowflake_table" value={form.snowflake.table} onChange={(event) => updateSnowflakeField("table", event.target.value)} disabled={!form.snowflake.schema}><option value="">Select table</option>{snowflakeMetadata.tables.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+                <p className="field-hint field-wide">{snowflakeStatus}</p>
                 <div className="field field-wide"><label htmlFor="sql_query">SQL Query</label><textarea id="sql_query" rows="8" value={form.sql_query} onChange={(event) => updateField("sql_query", event.target.value)} /></div>
                 <div className="field"><label htmlFor="max_rows">Max Rows</label><input id="max_rows" type="number" min="1" max="1000" value={form.max_rows} onChange={(event) => updateField("max_rows", event.target.value)} /></div>
               </div>
@@ -1359,7 +1579,7 @@ function App() {
                         {chatMessages.length ? chatMessages.map((message, index) => (
                           <div key={`${message.role}-${index}`} className={`chat-bubble chat-bubble-${message.role}`}>
                             <span className="chat-role">{message.role === "assistant" ? "Assistant" : "You"}</span>
-                            <p>{message.content}</p>
+                            <FormattedChatMessage text={message.content} />
                           </div>
                         )) : <p className="chat-empty">Run the workflow, then ask follow-up questions here.</p>}
                       </div>
