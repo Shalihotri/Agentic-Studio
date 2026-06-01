@@ -1,5 +1,8 @@
 from collections.abc import Sequence
+import base64
 from typing import Any
+
+from cryptography.hazmat.primitives import serialization
 import snowflake.connector
 from app.config import Settings
 from app.models import SnowflakeMetadataResponse, SnowflakeSelection
@@ -26,17 +29,44 @@ class SnowflakeClient:
         if authenticator == "snowflake":
             connect_kwargs["password"] = self._settings.snowflake_password
         elif authenticator == "snowflake_jwt":
-            connect_kwargs["private_key_file"] = str(
-                self._settings.snowflake_private_key_file
-            )
-            if self._settings.snowflake_private_key_file_pwd:
-                connect_kwargs["private_key_file_pwd"] = (
-                    self._settings.snowflake_private_key_file_pwd
+            if self._settings.snowflake_private_key:
+                connect_kwargs["private_key"] = self._load_private_key_bytes(
+                    self._settings.snowflake_private_key
                 )
+            else:
+                connect_kwargs["private_key_file"] = str(
+                    self._settings.snowflake_private_key_file
+                )
+                if self._settings.snowflake_private_key_file_pwd:
+                    connect_kwargs["private_key_file_pwd"] = (
+                        self._settings.snowflake_private_key_file_pwd
+                    )
         return connect_kwargs
 
     def _connect(self):
         return snowflake.connector.connect(**self._connect_kwargs())
+
+    def _load_private_key_bytes(self, raw_key: str) -> bytes:
+        key_text = raw_key.strip()
+        if "BEGIN" not in key_text:
+            key_bytes = base64.b64decode(key_text)
+        else:
+            key_bytes = key_text.replace("\\n", "\n").encode("utf-8")
+
+        password = (
+            self._settings.snowflake_private_key_file_pwd.encode("utf-8")
+            if self._settings.snowflake_private_key_file_pwd
+            else None
+        )
+        private_key = serialization.load_pem_private_key(
+            key_bytes,
+            password=password,
+        )
+        return private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
 
     @staticmethod
     def _quote_identifier(identifier: str) -> str:

@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         default=Path(__file__).parent / "rsa_key.p8",
         alias="SNOWFLAKE_PRIVATE_KEY_FILE",
     )
+    snowflake_private_key: str | None = Field(
+        default=None,
+        alias="SNOWFLAKE_PRIVATE_KEY",
+    )
     snowflake_private_key_file_pwd: str | None = Field(
         default=None,
         alias="SNOWFLAKE_PRIVATE_KEY_FILE_PWD",
