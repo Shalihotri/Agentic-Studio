@@ -7,6 +7,7 @@ import snowflake.connector
 from app.config import Settings
 from app.models import SnowflakeMetadataResponse, SnowflakeSelection
 
+
 class SnowflakeClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -30,13 +31,20 @@ class SnowflakeClient:
             connect_kwargs["password"] = self._settings.snowflake_password
         elif authenticator == "snowflake_jwt":
             if self._settings.snowflake_private_key:
+                # Inline key from env var — preferred on Vercel
                 connect_kwargs["private_key"] = self._load_private_key_bytes(
                     self._settings.snowflake_private_key
                 )
             else:
-                connect_kwargs["private_key_file"] = str(
-                    self._settings.snowflake_private_key_file
-                )
+                # File fallback — works locally, fails on Vercel if file is absent
+                key_file = self._settings.snowflake_private_key_file
+                if not key_file.exists():
+                    raise FileNotFoundError(
+                        f"Snowflake private key file not found at '{key_file}'. "
+                        "On Vercel, set the SNOWFLAKE_PRIVATE_KEY environment variable "
+                        "with the inline PEM key instead of relying on a local file."
+                    )
+                connect_kwargs["private_key_file"] = str(key_file)
                 if self._settings.snowflake_private_key_file_pwd:
                     connect_kwargs["private_key_file_pwd"] = (
                         self._settings.snowflake_private_key_file_pwd
@@ -49,8 +57,10 @@ class SnowflakeClient:
     def _load_private_key_bytes(self, raw_key: str) -> bytes:
         key_text = raw_key.strip()
         if "BEGIN" not in key_text:
+            # Base64-encoded DER key
             key_bytes = base64.b64decode(key_text)
         else:
+            # PEM key — replace escaped newlines (common when set via env var)
             key_bytes = key_text.replace("\\n", "\n").encode("utf-8")
 
         password = (
